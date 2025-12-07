@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Casino Reversi: Gemini Edition</title>
+    <!-- Tone.js (音声ライブラリ) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <!-- FontAwesome (アイコン) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* =========================================
+           CASINO DESIGN SYSTEM
+           ========================================= */
+        :root {
+            --bg-body: #050505;
+            --board-green: #006600;
+            --accent-gold: #ffcc00;
+            --accent-cyan: #00ffea;
+            --text-white: #ffffff;
+            --stone-black: #111;
+            --stone-white: #f0f0f0;
+        }
+
+        * { box-sizing: border-box; user-select: none; touch-action: manipulation; }
+
+        body {
+            font-family: 'Roboto', sans-serif;
+            margin: 0; padding: 0;
+            height: 100vh;
+            background-color: var(--bg-body);
+            color: var(--text-white);
+            overflow: hidden;
+            display: flex; flex-direction: column;
+        }
+
+        #app {
+            width: 100%; max-width: 500px; margin: 0 auto;
+            height: 100%;
+            position: relative; display: flex; flex-direction: column; padding: 10px;
+            background: linear-gradient(180deg, #1a1a1a 0%, #000 100%);
+        }
+
+        /* Screens */
+        .screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            background: rgba(5,5,5,0.95); z-index: 0; opacity: 0; pointer-events: none;
+            transition: opacity 0.3s;
+        }
+        .screen.active { z-index: 100; opacity: 1; pointer-events: auto; }
+
+        /* Header */
+        .header {
+            display: flex; justify-content: space-between; align-items: center;
+            background: #222; border: 1px solid #444; border-radius: 8px;
+            padding: 5px 12px; margin-bottom: 5px; flex-shrink: 0;
+        }
+        .status-box { font-size: 0.9rem; font-weight: bold; display: flex; align-items: center; gap: 6px; }
+        .timer {
+            font-family: monospace; font-size: 1.4rem; color: var(--accent-gold);
+            text-shadow: 0 0 5px var(--accent-gold);
+        }
+        .timer.panic { color: #f00; animation: blink 0.5s infinite; }
+        @keyframes blink { 50% { opacity: 0.5; } }
+
+        /* Dealer Bubble */
+        .dealer-area {
+            height: 30px; margin-bottom: 5px; display: flex; justify-content: center; align-items: center; flex-shrink: 0;
+        }
+        .dealer-bubble {
+            background: #fff; color: #000; padding: 4px 12px; border-radius: 15px;
+            font-size: 0.75rem; font-weight: bold; position: relative;
+            box-shadow: 0 0 8px rgba(255,255,255,0.4);
+            max-width: 95%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            opacity: 0; transition: opacity 0.5s;
+        }
+        .dealer-bubble.show { opacity: 1; }
+
+        /* Score Board */
+        .scores { display: flex; gap: 8px; margin-bottom: 5px; flex-shrink: 0; width: 100%; }
+        .p-card {
+            flex: 1; background: #222; border: 1px solid #444; border-radius: 6px;
+            padding: 4px 8px; display: flex; align-items: center; justify-content: space-between;
+            transition: 0.3s;
+        }
+        .p-card.active {
+            border-color: var(--accent-gold); background: #332a00;
+            box-shadow: 0 0 8px var(--accent-gold);
+        }
+        .stone-icon { width: 16px; height: 16px; border-radius: 50%; border: 1px solid #666; }
+        .stone-icon.b { background: var(--stone-black); }
+        .stone-icon.w { background: var(--stone-white); }
+        .p-name { font-size: 0.65rem; color: #aaa; }
+        .p-score { font-size: 1.2rem; font-weight: bold; line-height: 1; }
+
+        /* Board Area */
+        #board-container {
+            flex-grow: 1; display: flex; justify-content: center; align-items: center;
+            width: 100%; overflow: hidden; margin-bottom: 5px;
+        }
+        #board-wrap {
+            aspect-ratio: 1/1; height: 100%; max-height: 100%; max-width: 100%;
+            background: #2a2a2a; padding: 4px; border-radius: 4px;
+            box-shadow: 0 5px 15px #000; position: relative;
+        }
+        #board {
+            width: 100%; height: 100%;
+            display: grid; grid-template-columns: repeat(8, 1fr);
+            background: #000; gap: 1px; border: 1px solid #444;
+        }
+        .cell { background-color: var(--board-green); position: relative; }
+        
+        /* Elements */
+        .cell[data-star="true"]::before {
+            content: ''; position: absolute; width: 5px; height: 5px;
+            background: rgba(0,0,0,0.3); border-radius: 50%;
+            top: 50%; left: 50%; transform: translate(-50%,-50%);
+        }
+        .cell.bonus { background-color: #004400; }
+        .cell.bonus::after {
+            content: '★'; position: absolute; top: 0; right: 1px;
+            color: var(--accent-gold); font-size: 0.5rem; opacity: 0.8;
+        }
+
+        .stone {
+            width: 80%; height: 80%; border-radius: 50%;
+            position: absolute; top: 10%; left: 10%; z-index: 5;
+            box-shadow: 1px 1px 3px rgba(0,0,0,0.7);
+            transition: transform 0.2s ease-in;
+        }
+        .stone.b { background: radial-gradient(circle at 30% 30%, #444, #000); }
+        .stone.w { background: radial-gradient(circle at 30% 30%, #fff, #ccc); }
+        
+        .stone-val {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+            color: var(--accent-gold); font-size: 0.6rem; font-weight: bold; display: none;
+        }
+        .cell.bonus .stone-val { display: block; }
+
+        .hint {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 10; cursor: pointer;
+            display: flex; justify-content: center; align-items: center;
+        }
+        .hint-dot {
+            width: 30%; height: 30%; background: var(--accent-cyan);
+            border-radius: 50%; opacity: 0.6;
+            box-shadow: 0 0 5px var(--accent-cyan);
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse { 0%{transform:scale(0.8); opacity:0.4;} 100%{transform:scale(1.2); opacity:0.8;} }
+
+        /* Footer */
+        .footer-area { flex-shrink: 0; display: flex; flex-direction: column; gap: 5px; }
+        .hand { display: flex; justify-content: center; gap: 8px; min-height: 50px; }
+        .card {
+            width: 60px; height: 45px; background: #eee; color: #111;
+            border-radius: 4px; cursor: pointer; position: relative;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            box-shadow: 0 2px 0 #999; font-weight: bold; transition: 0.1s;
+        }
+        .card:active { transform: translateY(2px); box-shadow: 0 0 0; }
+        .card i { color: #b8860b; font-size: 1rem; margin-bottom: 1px; }
+        .card span { font-size: 0.55rem; }
+        
+        .card.locked, .card.disabled {
+            background: #444; color: #888; border: 1px solid #555;
+            pointer-events: none; box-shadow: none;
+        }
+        .card.locked::after { content: '\f023'; font-family: "Font Awesome 5 Free"; font-size: 1.2rem; color: #fff; position: absolute; }
+
+        .controls { display: flex; gap: 10px; justify-content: center; }
+        .btn-icon { background: #333; color: #fff; border: 1px solid #555; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
+        .btn-hint {
+            background: linear-gradient(135deg, #6a11cb, #2575fc); color: #fff;
+            border: 1px solid #aaa; padding: 6px 15px; border-radius: 4px; cursor: pointer;
+            font-weight: bold; display: flex; align-items: center; gap: 5px; font-size: 0.8rem;
+        }
+        .btn-hint:disabled { opacity: 0.5; filter: grayscale(1); }
+
+        .penguin { font-size: 4rem; animation: bounce 2s infinite; margin-bottom: 10px; }
+        .title-text { font-size: 2.5rem; color: var(--accent-gold); text-shadow: 0 0 10px #ffaa00; font-weight: 900; text-align: center; }
+        .btn-start {
+            background: var(--accent-gold); color: #000; font-size: 1.1rem;
+            padding: 12px 30px; border-radius: 30px; border: none;
+            margin: 8px; cursor: pointer; font-weight: bold; width: 200px;
+            box-shadow: 0 0 10px rgba(255, 200, 0, 0.4);
+        }
+
+        .notify {
+            position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.9); border: 2px solid var(--accent-gold);
+            color: #fff; padding: 15px; border-radius: 8px; z-index: 200;
+            font-size: 1rem; text-align: center; width: 80%;
+            pointer-events: none; opacity: 0; transition: 0.2s;
+        }
+        .notify.show { opacity: 1; }
+    </style>
+</head>
+<body>
+
+<div id="app">
+    <!-- Notifications -->
+    <div id="notify" class="notify">Message</div>
+
+    <!-- Screen: Title -->
+    <div id="s-title" class="screen active">
+        <div class="penguin">🐧</div>
+        <div class="title-text">CASINO<br>REVERSI</div>
+        <p style="color:#888; font-size: 0.9rem;">FIXED EDITION</p>
+        <div style="height:20px;"></div>
+        <button class="btn-start" onclick="Game.init('cpu')">VS CPU</button>
+        <button class="btn-start" onclick="Game.init('human')">VS HUMAN</button>
+    </div>
+
+    <!-- Screen: Game -->
+    <div id="s-game" class="screen" style="display:none;">
+        <div class="header">
+            <div class="status-box">
+                <i id="turn-icon" class="fas fa-circle"></i>
+                <span id="turn-text">BLACK</span>
+            </div>
+            <div id="timer" class="timer">30</div>
+        </div>
+
+        <div class="dealer-area">
+            <div id="dealer-msg" class="dealer-bubble">ゲームスタート</div>
+        </div>
+
+        <div class="scores">
+            <div id="p1-card" class="p-card active">
+                <div>
+                    <div class="p-name" id="p1-name">YOU</div>
+                    <div id="s-b" class="p-score">2</div>
+                </div>
+                <div class="stone-icon b"></div>
+            </div>
+            <div id="p2-card" class="p-card">
+                <div class="stone-icon w"></div>
+                <div style="text-align:right;">
+                    <div id="p2-name" class="p-name">CPU</div>
+                    <div id="s-w" class="p-score">2</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="board-container">
+            <div id="board-wrap">
+                <div id="board"></div>
+            </div>
+        </div>
+        
+        <div class="footer-area">
+            <div style="text-align:center; font-size:0.6rem; color:#666;">★=+2 / Items at Turn 5</div>
+            <div id="hand" class="hand"></div>
+            <div class="controls">
+                <button class="btn-icon" onclick="Game.toTitle()"><i class="fas fa-home"></i></button>
+                <button class="btn-icon" onclick="Audio.toggle()"><i class="fas fa-volume-up"></i></button>
+                <button id="btn-hint" class="btn-hint" onclick="Gemini.askHint()">
+                    <i class="fas fa-sparkles"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Screen: Result -->
+    <div id="s-result" class="screen">
+        <div class="penguin">🐧</div>
+        <h1 id="res-msg" style="color:var(--accent-gold);">WIN!</h1>
+        <h2 id="res-score">34 - 30</h2>
+        <button class="btn-start" onclick="Game.toTitle()">TITLE</button>
+    </div>
+</div>
+
+<script>
+const apiKey = ""; // Gemini API Key (ここにAPIキーを入れてください)
+
+/* GEMINI MODULE */
+const Gemini = (() => {
+    let lastCommentTime = 0;
+    async function callGemini(prompt, systemPrompt = "") {
+        if (!apiKey) return null;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+        const payload = { contents: [{ parts: [{ text: prompt }] }], systemInstruction: { parts: [{ text: systemPrompt }] } };
+        try {
+            const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            const data = await response.json();
+            return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+        } catch (error) { return null; }
+    }
+    async function speak(trigger, gameState) {
+        const now = Date.now();
+        if (now - lastCommentTime < 5000 && trigger !== 'start') return; 
+        lastCommentTime = now;
+        const dealerBubble = document.getElementById('dealer-msg');
+        dealerBubble.innerText = "..."; dealerBubble.classList.add('show');
+        const system = "カジノディーラーとしてリバーシの実況をしてください。20文字以内の短くキザな日本語で。";
+        const prompt = `状況:${trigger} スコア:${gameState.b}-${gameState.w}`;
+        const text = await callGemini(prompt, system);
+        if (text) { dealerBubble.innerText = text; setTimeout(() => dealerBubble.classList.remove('show'), 4000); } 
+        else dealerBubble.classList.remove('show');
+    }
+    async function askHint() {
+        const btn = document.getElementById('btn-hint');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i>`; btn.disabled = true;
+        const validMoves = Game.getCurrentValidMoves();
+        const moveDesc = validMoves.map(m => `R${m.r}C${m.c}(${m.flips.length}枚)`).join(";");
+        const prompt = `盤面候補:${moveDesc} 最善手は？30文字以内で。`;
+        const text = await callGemini(prompt, "カジノのピットボスとして助言してください。");
+        if (text) Game.notify(text, 4000); else Game.notify("通信エラー", 2000);
+        btn.innerHTML = originalText; btn.disabled = false;
+    }
+    return { speak, askHint };
+})();
+
+/* AUDIO MODULE */
+const Audio = (() => {
+    let ready = false, muted = false, synths = {}, bgm = null;
+    async function init() {
+        if(ready) return;
+        await Tone.start();
+        synths.pop = new Tone.Synth({ oscillator: {type:"sine"}, envelope: {attack:0, decay:0.1, sustain:0} }).toDestination().set({volume:-12});
+        synths.metal = new Tone.MetalSynth({ harmonicity:5, resonance:3000, envelope:{decay:0.1} }).toDestination().set({volume:-20});
+        synths.win = new Tone.PolySynth().toDestination().set({volume:-10});
+        const bass = new Tone.MonoSynth({ oscillator:{type:"triangle"}, envelope:{attack:0.05} }).toDestination().set({volume:-20});
+        const loop = new Tone.Sequence((time, note) => { bass.triggerAttackRelease(note, "4n", time); }, ["C2", "G2", "A2", "E2"], "2n");
+        Tone.Transport.bpm.value = 100; bgm = loop; ready = true;
+    }
+    function play(type) {
+        if(!ready || muted) return;
+        try {
+            if(type === 'move') synths.pop.triggerAttackRelease("C6", "32n");
+            if(type === 'card') synths.metal.triggerAttackRelease("32n");
+            if(type === 'win') { synths.win.triggerAttackRelease(["C4","E4","G4"], "8n"); synths.win.triggerAttackRelease(["C5","E5","G5"], "4n", "+0.2"); }
+        } catch(e) {}
+    }
+    function bgmStart() { if(ready && !muted) { Tone.Transport.start(); bgm.start(0); } }
+    function bgmStop() { if(ready) { Tone.Transport.stop(); bgm.stop(); } }
+    function toggle() { muted = !muted; Tone.Destination.mute = muted; }
+    return { init, play, bgmStart, bgmStop, toggle };
+})();
+
+/* GAME MODULE */
+const Game = (() => {
+    const BLACK = 1, WHITE = 2, EMPTY = 0, SIZE = 8;
+    let board = [], turn = BLACK, myColor = BLACK, mode = 'cpu', state = 'IDLE';
+    let turnCount = 0, timer = 30, timerId = null;
+    let bonusMap = [], hands = { [BLACK]: [], [WHITE]: [] };
+
+    const el = {
+        screens: { title: document.getElementById('s-title'), game: document.getElementById('s-game'), result: document.getElementById('s-result') },
+        board: document.getElementById('board'), timer: document.getElementById('timer'),
+        p1: document.getElementById('p1-card'), p2: document.getElementById('p2-card'),
+        sB: document.getElementById('s-b'), sW: document.getElementById('s-w'),
+        turnTxt: document.getElementById('turn-text'), turnIcon: document.getElementById('turn-icon'),
+        hand: document.getElementById('hand'), notify: document.getElementById('notify'),
+        p1name: document.getElementById('p1-name'), p2name: document.getElementById('p2-name')
+    };
+
+    const ITEMS = [
+        {id:'steal', name:'3枚強奪', icon:'fa-skull', desc:'ランダムに3枚奪う'},
+        {id:'king', name:'キング', icon:'fa-crown', desc:'角に強制配置'}
+    ];
+
+    async function init(m) {
+        mode = m;
+        await Audio.init();
+        Audio.bgmStart();
+        
+        board = [];
+        for(let r=0; r<SIZE; r++) board[r] = new Array(SIZE).fill(EMPTY);
+        board[3][3] = WHITE; board[3][4] = BLACK; board[4][3] = BLACK; board[4][4] = WHITE;
+
+        // Random Start Player (Coin Toss)
+        myColor = (Math.random() < 0.5) ? BLACK : WHITE;
+        turn = BLACK; // Game always starts with Black moving first in Othello rules
+        turnCount = 0;
+        
+        // Setup UI names based on assigned color
+        if (myColor === BLACK) {
+            el.p1name.textContent = "YOU (Black)";
+            el.p2name.textContent = mode==='cpu' ? "CPU (White)" : "P2 (White)";
+        } else {
+            el.p1name.textContent = "YOU (White)";
+            el.p2name.textContent = mode==='cpu' ? "CPU (Black)" : "P2 (Black)";
+        }
+
+        bonusMap = [];
+        while(bonusMap.length < 4) {
+            let r = Math.floor(Math.random()*8), c = Math.floor(Math.random()*8);
+            if(board[r][c] === EMPTY) bonusMap.push(r*8+c);
+        }
+        // Deal cards to Black and White player slots
+        hands[BLACK] = [randItem(), randItem()]; 
+        hands[WHITE] = [randItem(), randItem()];
+
+        switchScreen('game');
+        
+        // Notify start
+        const startMsg = myColor === BLACK ? "あなた(黒)の先行です！" : "相手(黒)の先行です！";
+        notify(startMsg, 3000);
+        if (mode === 'cpu') Gemini.speak("start", {b:2, w:2});
+        
+        startTurn();
+    }
+
+    function toTitle() { clearInterval(timerId); Audio.bgmStop(); state = 'IDLE'; switchScreen('title'); }
+    function switchScreen(name) {
+        Object.values(el.screens).forEach(s => { s.classList.remove('active'); s.style.display = 'none'; });
+        const target = el.screens[name]; target.style.display = 'flex';
+        setTimeout(() => target.classList.add('active'), 10);
+    }
+
+    function startTurn() {
+        state = 'PLAY';
+        clearInterval(timerId); timer = 30; updateTimer();
+        timerId = setInterval(() => { timer--; updateTimer(); if(timer <= 0) passTurn("時間切れ！"); }, 1000);
+
+        const moves = getValidMoves(turn);
+        updateUI(moves);
+
+        if (moves.length === 0) {
+            if (getValidMoves(turn===BLACK?WHITE:BLACK).length === 0) { endGame(); return; }
+            passTurn("置ける場所なし！"); return;
+        }
+
+        // CPU Check: If CPU mode, and it's NOT my color turn
+        if (mode === 'cpu' && turn !== myColor) {
+            state = 'CPU'; setTimeout(cpuThink, 2000);
+        }
+    }
+
+    function passTurn(msg) {
+        showNotify(msg); clearInterval(timerId); state = 'LOCK';
+        setTimeout(() => { turn = (turn===BLACK) ? WHITE : BLACK; startTurn(); }, 1500);
+    }
+
+    function cellClicked(r, c) {
+        if (state !== 'PLAY') return;
+        if (mode === 'cpu' && turn !== myColor) return; // Not your turn
+        const flips = getFlips(turn, r, c);
+        if (flips.length === 0) return;
+        executeMove(r, c, flips);
+    }
+
+    function executeMove(r, c, flips) {
+        state = 'LOCK'; clearInterval(timerId); Audio.play('move');
+        board[r][c] = turn;
+        flips.forEach(p => board[p.r][p.c] = turn);
+        turnCount++;
+        updateUI([]); 
+        turn = (turn===BLACK) ? WHITE : BLACK;
+        setTimeout(startTurn, 500);
+    }
+
+    function cpuThink() {
+        const b = parseInt(el.sB.innerText), w = parseInt(el.sW.innerText);
+        if(Math.random() < 0.3) Gemini.speak("turn", {b, w});
+
+        // CPU color is NOT myColor
+        const cpuColor = (myColor === BLACK) ? WHITE : BLACK;
+
+        if (turnCount >= 4 && hands[cpuColor].length > 0 && Math.random() < 0.2) {
+            useItem(cpuColor, 0); return;
+        }
+        const moves = getValidMoves(cpuColor);
+        if (moves.length === 0) return;
+
+        let best = moves[0], maxS = -999;
+        moves.forEach(m => {
+            let score = m.flips.length;
+            if((m.r===0||m.r===7)&&(m.c===0||m.c===7)) score += 20;
+            if(bonusMap.includes(m.r*8+m.c)) score += 5;
+            if(score > maxS) { maxS = score; best = m; }
+        });
+        executeMove(best.r, best.c, best.flips);
+    }
+
+    window.useItem = function(playerColor, idx) {
+        if (state !== 'PLAY' && state !== 'CPU') return;
+        
+        // If it's CPU turn, ignore human clicks
+        if (mode === 'cpu' && turn !== myColor && playerColor === myColor) return;
+        
+        // Only allow using items for the CURRENT turn player
+        if (playerColor !== turn) return; 
+
+        if (turnCount < 4) return;
+
+        const card = hands[playerColor][idx]; if(!card) return;
+
+        showNotify(card.name + " 発動！"); Audio.play('card');
+        hands[playerColor].splice(idx, 1); updateUI([]);
+
+        // FIX: Ensure correct player color is used for effects
+        if (card.id === 'steal') {
+            const opp = (playerColor===BLACK)?WHITE:BLACK;
+            let targets = [];
+            for(let r=0; r<8; r++) for(let c=0; c<8; c++) if(board[r][c]===opp) targets.push({r,c});
+            targets.sort(()=>Math.random()-0.5);
+            targets.slice(0,3).forEach(t => board[t.r][t.c] = playerColor); // Correct color applied
+            finishItemEffect(playerColor);
+        } else if (card.id === 'king') {
+            const corners = [{r:0,c:0},{r:0,c:7},{r:7,c:0},{r:7,c:7}];
+            let candidates = corners.filter(pos => board[pos.r][pos.c] === EMPTY);
+            if(candidates.length === 0) {
+                for(let r=0; r<8; r++) for(let c=0; c<8; c++) if((r===0||r===7||c===0||c===7) && board[r][c]===EMPTY) candidates.push({r,c});
+            }
+            if(candidates.length > 0) {
+                const t = candidates[Math.floor(Math.random()*candidates.length)];
+                board[t.r][t.c] = playerColor; // Correct color applied
+                finishItemEffect(playerColor);
+            } else finishItemEffect(playerColor);
+        }
+    };
+
+    function finishItemEffect(p) {
+        updateUI([]);
+        if(mode==='cpu' && p!==myColor) setTimeout(cpuThink, 1500);
+        else { const moves = getValidMoves(p); updateUI(moves); }
+    }
+
+    function getValidMoves(p) {
+        let res = [];
+        for(let r=0; r<8; r++) for(let c=0; c<8; c++) {
+            let f = getFlips(p, r, c);
+            if(f.length) res.push({r, c, flips:f});
+        }
+        return res;
+    }
+
+    function getFlips(p, r, c) {
+        if(board[r][c] !== EMPTY) return [];
+        let opp = (p===BLACK)?WHITE:BLACK, flips = [];
+        const dirs = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+        for(let d of dirs) {
+            let tr=r+d[0], tc=c+d[1], line = [];
+            while(tr>=0 && tr<8 && tc>=0 && tc<8 && board[tr][tc]===opp) {
+                line.push({r:tr, c:tc}); tr+=d[0]; tc+=d[1];
+            }
+            if(tr>=0 && tr<8 && tc>=0 && tc<8 && board[tr][tc]===p && line.length>0) flips = flips.concat(line);
+        }
+        return flips;
+    }
+
+    function updateUI(validMoves = []) {
+        let b=0, w=0;
+        for(let r=0; r<8; r++) for(let c=0; c<8; c++) {
+            let val = bonusMap.includes(r*8+c) ? 2 : 1;
+            if(board[r][c]===BLACK) b+=val;
+            if(board[r][c]===WHITE) w+=val;
+        }
+        el.sB.innerText = b; el.sW.innerText = w;
+        
+        // Highlight active card
+        if(turn===BLACK) {
+            el.p1.classList.add('active'); el.p2.classList.remove('active');
+            el.turnTxt.innerText = "BLACK"; el.turnIcon.style.color = "#111";
+        } else {
+            el.p1.classList.remove('active'); el.p2.classList.add('active');
+            el.turnTxt.innerText = "WHITE"; el.turnIcon.style.color = "#fff";
+        }
+
+        el.board.innerHTML = '';
+        let hintSet = new Set();
+        // Show hints if it's MY turn (in cpu mode) or ANY turn (in human mode)
+        let showHints = (mode === 'human') || (turn === myColor);
+        
+        if (showHints && validMoves.length > 0) {
+            validMoves.forEach(m => hintSet.add(m.r*8+m.c));
+        }
+
+        for(let r=0; r<8; r++) for(let c=0; c<8; c++) {
+            let div = document.createElement('div');
+            div.className = 'cell';
+            let idx = r*8+c;
+            if ([18,21,42,45].includes(idx)) div.setAttribute('data-star', 'true');
+            if (bonusMap.includes(idx)) div.classList.add('bonus');
+
+            if (board[r][c] !== EMPTY) {
+                let s = document.createElement('div');
+                s.className = `stone ${board[r][c]===BLACK ? 'b' : 'w'}`;
+                if (bonusMap.includes(idx)) s.innerHTML = '<span class="stone-val">+2</span>';
+                div.appendChild(s);
+            }
+            if (hintSet.has(idx)) {
+                let h = document.createElement('div');
+                h.className = 'hint';
+                h.innerHTML = '<div class="hint-dot"></div>';
+                h.onclick = () => cellClicked(r, c);
+                div.appendChild(h);
+            }
+            el.board.appendChild(div);
+        }
+        // Render hand for the human player (myColor)
+        renderHand(myColor);
+    }
+
+    function renderHand(p) {
+        el.hand.innerHTML = '';
+        // Only render MY cards
+        hands[p].forEach((item, i) => {
+            let btn = document.createElement('div');
+            btn.className = 'card';
+            let locked = turnCount < 4;
+            // Can only use if it's currently my turn
+            let isMyTurn = (turn === p);
+            
+            if (locked) btn.classList.add('locked');
+            else if (!isMyTurn) btn.classList.add('disabled');
+            
+            btn.innerHTML = `<i class="fas ${item.icon}"></i><span>${item.name}</span>`;
+            if (!locked && isMyTurn) btn.onclick = () => window.useItem(p, i);
+            el.hand.appendChild(btn);
+        });
+    }
+
+    function updateTimer() {
+        el.timer.innerText = timer;
+        if(timer<=10) el.timer.classList.add('panic'); else el.timer.classList.remove('panic');
+    }
+
+    function showNotify(msg, duration=2000) {
+        el.notify.innerText = msg;
+        el.notify.classList.add('show');
+        setTimeout(() => el.notify.classList.remove('show'), duration);
+    }
+
+    function randItem() { return ITEMS[Math.floor(Math.random()*ITEMS.length)]; }
+
+    function endGame() {
+        state = 'END'; clearInterval(timerId);
+        let b = parseInt(el.sB.innerText), w = parseInt(el.sW.innerText);
+        
+        let win = false;
+        if (myColor === BLACK && b > w) win = true;
+        if (myColor === WHITE && w > b) win = true;
+        
+        document.getElementById('res-msg').innerText = win ? "WIN!" : "LOSE...";
+        document.getElementById('res-score').innerText = `Black:${b} - White:${w}`;
+        Audio.play('win');
+        switchScreen('result');
+        if (mode === 'cpu') Gemini.speak("End Game", {b, w});
+    }
+    
+    function notify(text, time) { showNotify(text, time); }
+    function getCurrentValidMoves() { return getValidMoves(turn); }
+
+    return { init, toTitle, notify, getCurrentValidMoves };
+})();
+</script>
+</body>
+</html>
